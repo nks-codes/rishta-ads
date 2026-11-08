@@ -1,1 +1,66 @@
+name: Android Build
 
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.27.4'
+          channel: stable
+          cache: true
+
+      - name: Generate Android platform files
+        run: |
+          flutter create --platforms=android --org pk.biah --project-name rishta_ads .
+          rm -f test/widget_test.dart
+
+      - name: Configure Android project
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          sed -i 's/android:label="[^"]*"/android:label="Rishta Ads"/' "$MANIFEST"
+          grep -q 'android.permission.INTERNET' "$MANIFEST" || sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$MANIFEST"
+          # Keystore-encrypted data (session cookie) must not be restored from cloud backups.
+          grep -q 'android:allowBackup' "$MANIFEST" || sed -i 's#<application#<application android:allowBackup="false"#' "$MANIFEST"
+          # flutter_secure_storage needs Android 6.0 (API 23) or newer.
+          for f in android/app/build.gradle android/app/build.gradle.kts; do
+            if [ -f "$f" ]; then
+              sed -i -E 's/minSdk(Version)?[ =]+flutter\.minSdkVersion/minSdk = 23/' "$f"
+              grep -n 'minSdk' "$f"
+            fi
+          done
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run tests
+        run: flutter test
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: rishta-ads-android
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          
