@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../screens/browse/browse_screen.dart';
+import '../screens/post_ad/post_ad_screen.dart';
 import '../widgets/coming_soon.dart';
 
 /// Main screen with the three bottom-navigation tabs:
@@ -30,7 +31,7 @@ class _MainShellState extends State<MainShell> {
           index: _index,
           children: const [
             BrowseScreen(),
-            ComingSoon(title: 'Post Ad', icon: Icons.edit_note),
+            PostAdScreen(),
             ComingSoon(title: 'More', icon: Icons.more_horiz),
           ],
         ),
