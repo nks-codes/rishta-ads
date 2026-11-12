@@ -8,6 +8,10 @@ class AppConstants {
   static const String websiteUrl = 'https://biah.pk';
   static const String contactUrl = 'https://biah.pk/contact';
 
+  /// Link added when sharing the app. Replace with the official app-store link
+  /// when one exists; until then the Biah.pk website is shared.
+  static const String appShareUrl = websiteUrl;
+
   static const Duration requestTimeout = Duration(seconds: 20);
   static const int pageSize = 20;
 
