@@ -46,6 +46,12 @@ jobs:
             fi
           done
 
+      - name: Generate launcher icons
+        continue-on-error: true
+        run: |
+          pip install pillow
+          python3 tools/generate_icons.py android/app/src/main/res
+
       - name: Install dependencies
         run: flutter pub get
 
@@ -63,4 +69,3 @@ jobs:
         with:
           name: rishta-ads-android
           path: build/app/outputs/flutter-apk/app-debug.apk
-          
