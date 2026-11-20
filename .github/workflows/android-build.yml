@@ -92,7 +92,7 @@ jobs:
 
       - name: Verify package name and target SDK
         id: verify
-        run: tools/verify_apk.sh build/app/outputs/flutter-apk/app-debug.apk 36 pk.biah.rishta_ads
+        run: bash tools/verify_apk.sh build/app/outputs/flutter-apk/app-debug.apk 36 pk.biah.rishta_ads
 
       - name: Build report
         if: always()
@@ -124,7 +124,7 @@ jobs:
           cat "$GITHUB_STEP_SUMMARY" || true
 
       - name: Upload APK
-        if: steps.build.outcome == 'success'
+        if: always() && steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: rishta-ads-android
