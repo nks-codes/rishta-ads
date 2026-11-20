@@ -2,13 +2,18 @@ name: Android Build
 
 on:
   workflow_dispatch:
+    inputs:
+      flutter_version:
+        description: 'Flutter version to build with, e.g. 3.47.x (default) or 3.50.x'
+        required: false
+        default: '3.47.x'
   push:
     branches: [main]
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -22,29 +27,44 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.27.4'
+          flutter-version: ${{ github.event.inputs.flutter_version || '3.47.x' }}
           channel: stable
           cache: true
 
+      - name: Show tool versions
+        run: |
+          flutter --version
+          java -version
+
       - name: Generate Android platform files
+        id: create
         run: |
           flutter create --platforms=android --org pk.biah --project-name rishta_ads .
           rm -f test/widget_test.dart
 
       - name: Configure Android project
+        id: configure
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml
           sed -i 's/android:label="[^"]*"/android:label="Rishta Ads"/' "$MANIFEST"
           grep -q 'android.permission.INTERNET' "$MANIFEST" || sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$MANIFEST"
           # Keystore-encrypted data (session cookie) must not be restored from cloud backups.
           grep -q 'android:allowBackup' "$MANIFEST" || sed -i 's#<application#<application android:allowBackup="false"#' "$MANIFEST"
-          # flutter_secure_storage needs Android 6.0 (API 23) or newer.
           for f in android/app/build.gradle android/app/build.gradle.kts; do
             if [ -f "$f" ]; then
+              # flutter_secure_storage needs Android 6.0 (API 23) or newer.
               sed -i -E 's/minSdk(Version)?[ =]+flutter\.minSdkVersion/minSdk = 23/' "$f"
-              grep -n 'minSdk' "$f"
+              # Google Play: new apps must target Android 16 (API 36). Pinned explicitly,
+              # not left to the Flutter template. The APK check below proves the result.
+              sed -i -E 's/targetSdk(Version)?[ =]+flutter\.targetSdkVersion/targetSdk = 36/' "$f"
+              echo "--- $f"
+              grep -nE 'compileSdk|targetSdk|minSdk' "$f"
             fi
           done
+          echo "--- Gradle / AGP / Kotlin"
+          grep -n 'distributionUrl' android/gradle/wrapper/gradle-wrapper.properties
+          grep -nE 'com.android.application|org.jetbrains.kotlin' android/settings.gradle* || true
+          cat android/gradle.properties
 
       - name: Generate launcher icons
         continue-on-error: true
@@ -53,19 +73,69 @@ jobs:
           python3 tools/generate_icons.py android/app/src/main/res
 
       - name: Install dependencies
+        id: pub
         run: flutter pub get
 
       - name: Analyze
-        run: flutter analyze --no-fatal-infos
+        id: analyze
+        shell: bash
+        run: flutter analyze --no-fatal-infos 2>&1 | tee analyze.log
 
       - name: Run tests
-        run: flutter test
+        id: test
+        shell: bash
+        run: flutter test 2>&1 | tee test.log
 
       - name: Build debug APK
+        id: build
         run: flutter build apk --debug
 
+      - name: Verify package name and target SDK
+        id: verify
+        run: tools/verify_apk.sh build/app/outputs/flutter-apk/app-debug.apk 36 pk.biah.rishta_ads
+
+      - name: Build report
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Rishta Ads build report"
+            echo ""
+            echo "Flutter: \`$(flutter --version 2>/dev/null | head -n 1)\`"
+            echo ""
+            echo "| Step | Result |"
+            echo "|---|---|"
+            echo "| Generate Android project | ${{ steps.create.outcome }} |"
+            echo "| Configure project | ${{ steps.configure.outcome }} |"
+            echo "| flutter pub get | ${{ steps.pub.outcome }} |"
+            echo "| flutter analyze | ${{ steps.analyze.outcome }} |"
+            echo "| flutter test | ${{ steps.test.outcome }} |"
+            echo "| Build debug APK | ${{ steps.build.outcome }} |"
+            echo "| Verify package + target SDK | ${{ steps.verify.outcome }} |"
+            if [ -f analyze.log ]; then
+              echo ""
+              echo "Analyzer messages: $(grep -c ' error • ' analyze.log || true) errors, $(grep -c ' warning • ' analyze.log || true) warnings, $(grep -c ' info • ' analyze.log || true) infos"
+            fi
+            if [ -f test.log ]; then
+              echo ""
+              echo "Tests: \`$(tail -n 1 test.log)\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY" || true
+
       - name: Upload APK
+        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: rishta-ads-android
           path: build/app/outputs/flutter-apk/app-debug.apk
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            analyze.log
+            test.log
+          if-no-files-found: ignore
